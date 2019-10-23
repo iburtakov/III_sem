@@ -1,0 +1,3 @@
+C:/dev/III_sem/myid/cmake-build-debug/CMakeFiles/myid.dir
+C:/dev/III_sem/myid/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/dev/III_sem/myid/cmake-build-debug/CMakeFiles/rebuild_cache.dir
