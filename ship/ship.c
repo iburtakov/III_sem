@@ -9,14 +9,16 @@
 #include <string.h>
 
 
-#define ASSERT(MSG, EXPR)                                                  \
-do{                                                                        \
+
+#define ASSERT(MSG, EXPR);                                                 \
+do {                                                                        \
     if (!(EXPR))                                                           \
     {                                                                      \
         fprintf(stderr, "%s: '"MSG"': %s\n", progname, strerror(errno));   \
         exit(EXIT_FAILURE);                                                \
     }                                                                      \
 } while(0);
+
 
 
 enum
@@ -32,15 +34,8 @@ enum SEM
     END
 };
 
-/*  sem[SHIP]   - number of available seats on ship
-    sem[LADD]   - number of available seats on ladder
-    sem[SLEEP]  - used to keep passengers from leaving the ship
-                  before departure
-    sem[END}    - used to finish program
-*/
-
-char* progname;
-int   semid;
+char *progname;
+int semid; //в программе ожидается одно множество семафоров
 
 void ship(const short ship_cur, const short ladd_cap, const short nfloat);
 void init_ship(const short);
@@ -56,9 +51,14 @@ void go_ship();
 void leave_ship();
 void enjoy();
 
-
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
+    //printf("This is a boat simulator.\n");
+    //printf("%s\n", argv[0]);
+
+    //printf("Enter\n nomber of passengers, ship capacity, ladder capacity, nomber of floats of the ship\n");
+
+
     progname = argv[0];
 
     if (argc != ARGC)
@@ -100,38 +100,38 @@ int main(int argc, char* argv[])
         return 0;
     }
 
-    semid = semget(IPC_PRIVATE, 4, 0600); //for user
+    semid = semget(IPC_PRIVATE, 4, 0700);
     ASSERT("semget", semid != -1);
 
     if (fork() == 0)
         ship(ship_cap, ladd_cap, nfloat);
 
-    for (short i = 0; i < npass; i++)
+    for (int i = 0; i < npass; i++)
     {
         if (fork() == 0)
             passenger(i);
     }
 
-    for (short i = 0; i < npass + 1; i++)
+    //ждем завершения всех пассажиров и корабля
+    for (int i = 0; i < npass + 1; i++)
+    {
         wait(NULL);
+    }
 
     int ctl = semctl(semid, 0, IPC_RMID, 0);
     ASSERT("semctl", ctl != -1);
 
-    printf("Success\n");
+    printf("End of the working day\n");
 
     return 0;
 }
-
 
 void ship(const short ship_cap, const short ladd_cap, const short nfloat)
 {
     init_ship(ship_cap);
 
-
     for (short i = 0; i < nfloat; i++)
     {
-        printf("\n");
         printf("Ship: sailed to beach\n");
 
         open_ladd(ladd_cap);
@@ -148,7 +148,6 @@ void ship(const short ship_cap, const short ladd_cap, const short nfloat)
     exit(EXIT_SUCCESS);
 }
 
-
 void passenger(const short i)
 {
     while(1)
@@ -157,8 +156,9 @@ void passenger(const short i)
         buy_ticket();
         if (check_end())
             break;
-
+        //!
         go_ship();
+
         printf("Passenger %2d: went on ship\n", i);
 
         enjoy();
@@ -173,7 +173,6 @@ void passenger(const short i)
     exit(EXIT_SUCCESS);
 }
 
-
 void init_ship(const short ship_cap)
 {
     struct sembuf init = {SHIP, ship_cap, 0};
@@ -181,10 +180,9 @@ void init_ship(const short ship_cap)
     ASSERT("semop", res != -1);
 }
 
-
 void open_ladd(const short ladd_cap)
 {
-    //forbid to leave the ship before departure
+    //forbid to leave the ship before arriving
     struct sembuf forbid = {SLEEP, 1, 0};
     int res = semop(semid, &forbid, 1);
     ASSERT("semop", res != -1);
@@ -196,39 +194,35 @@ void open_ladd(const short ladd_cap)
     ASSERT("semop", res != -1);
 }
 
-
 void close_ladd(const short ladd_cap)
 {
     //close ladder
+    printf("Ship: close ladder\n");
     struct sembuf close = {LADD, -ladd_cap, 0};
-
     int res = semop(semid, &close, 1);
     ASSERT("semop", res != -1);
-    printf("Ship: close ladder\n");
 
     //allow to leave the ship
-    struct sembuf allow = {SLEEP, -1, 0};///////////////////////////
+
+    struct sembuf allow = {SLEEP, -1, 0};
     res = semop(semid, &allow, 1);
     ASSERT("semop", res != -1);
 }
 
-
 void end_cruise(const short ship_cap, const short ladd_cap)
 {
-    //signal to passangers that cruise end
+    // signal to passengers that cruise end
     struct sembuf end = {END, 1, 0};
     int res = semop(semid, &end, 1);
+    ASSERT("semop", res != -1);
 
     open_ladd(ladd_cap);
 
-    //wait when all passangers leave ship
+    //wait when all passengers leave the ship
     struct sembuf wait = {SHIP, ship_cap, 0};
     res = semop(semid, &wait, 1);
     ASSERT("semop", res != -1);
-
-    ASSERT("semop", res != -1);
 }
-
 
 void buy_ticket()
 {
@@ -237,32 +231,29 @@ void buy_ticket()
     ASSERT("semop", res != -1);
 }
 
-
 int check_end()
 {
     struct sembuf check = {END, 0, IPC_NOWAIT};
     int res = semop(semid, &check, 1);
     if (res == -1 && errno == EAGAIN)
-        return 1;
+        return 1
 
     ASSERT("semop", res != -1);
     return 0;
 }
 
-
 void go_ship()
 {
-    //go to ladder
+    // go to ladder
     struct sembuf ladd = {LADD, -1, 0};
     int res = semop(semid, &ladd, 1);
     ASSERT("semop", res != -1);
 
-    //go to ship
+    // go to ship
     struct sembuf ship = {LADD, 1, 0};
     res = semop(semid, &ship, 1);
     ASSERT("semop", res != -1);
 }
-
 
 void return_ticket()
 {
@@ -272,6 +263,8 @@ void return_ticket()
 }
 
 
+// если sem_op равен нулю, то вызывающий процесс будет усыплен
+// (sleep()), пока значение семафора не станет нулем
 void enjoy()
 {
     struct sembuf waiting = {SLEEP, 0, 0};
@@ -279,10 +272,9 @@ void enjoy()
     ASSERT("semop", res != -1);
 }
 
-
 void leave_ship()
 {
-    //go to ladder
+    // go to ladder
     struct sembuf ladd = {LADD, -1, 0};
     int res = semop(semid, &ladd, 1);
     ASSERT("semop", res != -1);
