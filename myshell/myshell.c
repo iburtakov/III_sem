@@ -1,135 +1,228 @@
-#include <stdio.h>
+#include "stdio.h"
+#include "stdlib.h"
 #include <unistd.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <string.h>
 
-//pipe (int *fd)
-// fd[0] - выходной поток pipe
-// fd[1] - входной поток pipe
+
+#define STRLEN 256
+#define ARGNUM 50
+
+struct arg
+{
+        char* command;
+        char** com_arg;
+	int num_com_arg;
+        struct arg* next;
+};
+
+struct arg* next_arg_init(struct arg* cur_arg);
+struct arg* read_string();
+struct arg* parser(struct arg* arg , char* string);
+void execution(struct arg* arg);
+void wait_all(struct arg* arg);
+void destroy_arg(struct arg* arg);
 
 int main()
 {
-        int length = 0;
-        char string[1024];
-        int wordsCount = 0;
-        printf("AVE OMNISSIAH: ");
-        // пока не встретили конец ввода
-        while (fgets(string, 1024, stdin) != NULL)
-        {
-                length = strlen(string);
-                string[length - 1] = '\0'; //приведение строки к стандартному виду
-                if (strchr(string, '|')) // если есть пайпы
-                {
-                        int comandCount = 0;
-                        char *comands[128]; //массив команд с аргументами в строке string
-    
-                        int i = 0;
-    
-                        for (comands[i] = strtok(string, "|"); comands[i]; i++, comands[i] = strtok(NULL, "|"))
-                        {
-                                ++comandCount;
-                        }
-    
-                        //получили [comand arguments]
-    
-                        char *words[128][128];
-    
-                        for (int j = 0; j < comandCount; j++)
-                        {
-                                i = 0;
-                                for(words[j][i] = strtok(comands[j], " "); words[j][i]; i++, words[j][i] = strtok(NULL, " "))
-                                {}
-                        }
-    
-                        pid_t pid = 0;
-                        int countPipes = comandCount - 1; //в силу вида строки
-    
-                        //массив файловых дескрипторов и на вход и на выход
-                        int fd[2 * countPipes];
+struct arg* arg;
+while(1)
+{
+        printf("InspectorShell$ ");
+        arg = read_string();
+	if(arg == NULL)
+		continue;
 
-                        //создание и проверка входов и выходов pipe'ов
-                        for (int i = 0; i < countPipes; i++)
-                        {
-                                if(pipe(fd + 2 * i) < 0)
-                                        perror("ERROR IN PIPE");
-                        }
-    
-                        for (int i = 0, j = 1; i < comandCount; i++, j += 2) //j - счётчик выходов пайпов
-                        {
-                                int prevFd = 0;
-                                pid = fork();
-                                if (pid == 0)
-                                {
-                                        if (i == 0) //первая команда
-                                        {
-                                                //замена output
-                                                close(1);
-                                                if (dup(fd[j] < 0)) 
-                                                        perror("ERROR IN DUP i = 0");
-                                                prevFd = j - 1;//вход для следующего процесса
-                                        }
-                                        else if (i > 0 && i < comandCount - 1) //не первая и не последняя команды
-                                        {
-                                                //замена input
-                                                close(0);
-                                                if (dup(fd[prevFd]) < 0)
-                                                        perror("ERROR IN DUP i > 0 in input");
-    
-                                                //замена output
-                                                close(1);
-                                                if (dup(fd[j]) < 0)
-                                                        perror("ERROR IN DUP i > 0 in output");
-    
-                                                prevFd = j - 1;
-                                        }
-                                        else if (i == comandCount - 1) //последняя команда
-                                        {
-                                                close(0);
-                                                if (dup(fd[prevFd]) < 0)
-                                                        perror("ERROR IN DUP i = comandCount - 1");
-                                        }
-    
-                                        for (int i = 0; i < 2 * countPipes; i++)
-                                        {    
-                                                close(fd[i]);
-                                        }
-                                        //вызываем команды
-                                        if(execvp(words[i][0], words[i]) < 0)
-                                                perror("ERROR IN EXEC");
-                                }
-                        }
-                        //закрываем лишние файловые дескрипторы ниже stdin stdout и stderr
-                        for (int i = 0; i < countPipes * 2; i++)
-                        {
-                                close(fd[i]);
-                        }
-                        //ожидаем завершение всх дочерних процессов
-                        for (int i = 0; i < comandCount + 1; i++)
-                        {
-                                wait(NULL);
-                        }
-                        printf("AVE OMNISSIAH: ");
-                }
-                //если всего одна команда без пайпа
-                else
-                {
-                        char *words[1024];
-                        int i = 0;
-                        for (words[i] = strtok(string, " "); words[i]; i++, words[i] = strtok(NULL, " "))
-                        {
-                                wordsCount++;
-                        }
-    
-                        pid_t pid = fork();
-                        if (pid == 0)
-                        {
-                                words[wordsCount] = NULL;
-                                execvp(words[0], words);
-                        }
-                        wait(NULL);
-                        printf("AVE OMNISSIAH: ");
-                }
-        }
-        return 0;
+	//printf("%s %s\n" , arg->com_arg[0] , arg->com_arg[1] );
+
+	execution(arg);
+	wait_all(arg);
+	destroy_arg(arg);
+
+	//sleep(1);
+}
+return 0;
+}
+
+
+struct arg* next_arg_init(struct arg* cur_arg)
+{
+        struct arg* next_arg = (struct arg*)calloc(1 , sizeof(struct arg));
+        next_arg->com_arg = (char**)calloc(ARGNUM , sizeof(char*));
+        next_arg->command = NULL;
+        next_arg->next = NULL;
+	next_arg->num_com_arg = 0;
+ 
+	if(cur_arg != NULL)
+                cur_arg->next = next_arg;
+        
+	return next_arg;
+}
+
+
+struct arg* read_string()
+{
+	char* string = calloc(STRLEN , sizeof(char));
+	
+	char* c = fgets(string, STRLEN, stdin);
+	if(c == NULL)
+		exit(0);
+	/*
+	int x = scanf("%m[^\n]" , &string);
+	if(x = EOF)
+		exit(0);
+	getchar();
+	//printf("%d\n" , x);*/
+	if(string[0] == '\n')
+	{
+		free(string);
+		return NULL;
+	}
+	else if(!strcmp(string , "exit\n"))
+	{
+		free(string);
+		exit(0);
+	}
+	else
+	{
+		struct arg* arg = parser(NULL , string);
+		free(string);
+		return arg;
+	}
+}
+
+
+struct arg* parser(struct arg* a , char* string)
+{
+struct arg* arg = next_arg_init(a);
+char c;
+int shift = 0;
+int was_command = 0;
+for( ; strlen(string) != 1 ; string++)
+{
+	if(*string == ' ')
+	{
+	//	printf("probel\n");
+		continue;
+	}
+
+	else if((*string == '|') && was_command)
+	{
+	//	printf("new command\n");
+		next_arg_init(arg);
+		if(NULL == parser(arg , ++string))
+			return NULL;
+		break;
+	}
+	else if((*string == '|') && !was_command)
+	{
+		//printf("empty command\n");
+		return NULL;
+	}
+	
+	else if(!was_command)
+	{
+	//	printf("command: ");
+		sscanf(string , "%m[^ ^|^\n]" , &(arg->command));
+		sscanf(string , "%m[^ ^|^\n]" , &(arg->com_arg[arg->num_com_arg]));
+		(arg->num_com_arg)++;
+		string += strlen(arg->command) - 1;
+		was_command = 1;
+	//	printf("%s\n" , arg->command);
+	}
+	else
+	{
+	//	printf("argument: ");
+		sscanf(string , "%m[^ ^|^\n]" , &(arg->com_arg[arg->num_com_arg]));
+		string += strlen(arg->com_arg[arg->num_com_arg]) - 1;
+	//	printf("%s\n" , arg->com_arg[arg->num_com_arg]);
+		(arg->num_com_arg)++;
+
+	}
+
+	fflush(NULL);
+
+}
+
+if(!was_command )
+	return NULL;
+return arg;
+}
+
+
+
+void execution(struct arg* arg)
+{
+pid_t id;
+int fd[2] , com_fd = -1;
+int is_first = 1;
+do
+{
+	if(!is_first)
+		arg = arg->next;
+	pipe(fd);
+	id = fork();
+	if(id == 0)
+	{
+	//child
+		close(fd[0]);
+		if(!is_first)
+		{
+			close(0);
+			dup2(com_fd , 0);
+			close(com_fd);
+		}
+		if(arg->next != NULL)
+		{
+			close(1);
+			dup2(fd[1] , 1);
+			close(fd[1]);
+		}
+//		printf("%s %s\n" , arg->com_arg[0] , arg->com_arg[1]);
+		fflush(NULL);	
+		execvp(arg->command , arg->com_arg);
+	}	
+	else
+	{
+	//parent
+		if(com_fd != -1)
+			close(com_fd);
+		com_fd = fd[0];
+		close(fd[1]);
+	}
+	is_first = 0;
+
+}
+while(arg->next != NULL);
+
+}
+
+
+
+
+
+void wait_all(struct arg* arg)
+{
+wait(0);
+while(arg->next != NULL)
+{
+	wait(0);
+	arg = arg->next;
+}
+}
+
+
+void destroy_arg(struct arg* arg)
+{
+	if(arg->next != NULL)
+		destroy_arg(arg->next);
+	for(int i = 0 ; i < arg->num_com_arg ; i++)
+		free(arg->com_arg[i]);
+	
+	free(arg->command);
+
+	if(arg->next != NULL)
+		free(arg->next);
+
 }
